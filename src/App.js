@@ -1,5 +1,4 @@
 import React, { Component } from "react";
-import Clarifai from "clarifai";
 import Navigation from "./components/Navigation/Navigation";
 import Logo from "./components/Logo/Logo";
 import ImageLinkForm from "./components/ImageLinkForm/ImageLinkForm";
@@ -22,27 +21,25 @@ const particlesOptions = {
   },
 };
 
-const app = new Clarifai.App({
-  apiKey: "0419c305d3f84755957c84e4b65c5a99",
-});
+const initialState = {
+  input: "",
+  imageUrl: "",
+  box: [{}],
+  route: "signin",
+  isSignedIn: false,
+  user: {
+    id: "",
+    name: "",
+    email: "",
+    entries: 0,
+    joined: "",
+  },
+};
 
 class App extends Component {
   constructor() {
     super();
-    this.state = {
-      input: "",
-      imageUrl: "",
-      box: {},
-      route: "signin",
-      isSignedIn: false,
-      user: {
-        id: "",
-        name: "",
-        email: "",
-        entries: 0,
-        joined: "",
-      },
-    };
+    this.state = initialState;
   }
 
   loadUser = (userData) => {
@@ -64,22 +61,29 @@ class App extends Component {
   // }
 
   calculateFaceLocation = (data) => {
-    const clarifaiFace =
-      data.outputs[0].data.regions[0].region_info.bounding_box;
-    const image = document.getElementById("inputimage");
-    const width = Number(image.width);
-    const height = Number(image.height);
-    return {
-      leftCol: clarifaiFace.left_col * width,
-      topRow: clarifaiFace.top_row * height,
-      rightCol: width - clarifaiFace.right_col * width,
-      bottomRow: height - clarifaiFace.bottom_row * height,
-    };
+    // console.log(data);
+    const faceLocationArrays = data.outputs[0].data.regions.map(
+      (dataCoor, i) => {
+        console.log(dataCoor);
+        const clarifaiFace = dataCoor.region_info.bounding_box;
+        const image = document.getElementById("inputimage");
+        const width = Number(image.width);
+        const height = Number(image.height);
+        return this.displayFaceBox({
+          leftCol: clarifaiFace.left_col * width,
+          topRow: clarifaiFace.top_row * height,
+          rightCol: width - clarifaiFace.right_col * width,
+          bottomRow: height - clarifaiFace.bottom_row * height,
+        });
+      }
+    );
+    return faceLocationArrays;
   };
 
-  displayFaceBox = (box) => {
-    console.log(box);
-    this.setState({ box: box });
+  displayFaceBox = (newBox) => {
+    console.log(newBox);
+    this.setState({ box: [...this.state.box, newBox] });
+    console.log(this.state.box.length);
   };
 
   onInputChange = (event) => {
@@ -87,20 +91,45 @@ class App extends Component {
     // console.log(this.state.input);
   };
 
-  onButtonSubmit = () => {
+  onPictureSubmit = () => {
     this.setState({ imageUrl: this.state.input });
-    // console.log(this.state.imageUrl);
-    app.models
-      .predict(Clarifai.FACE_DETECT_MODEL, this.state.input)
-      .then((response) =>
-        this.displayFaceBox(this.calculateFaceLocation(response))
-      )
-      .catch((err) => console.log(err));
+    console.log(this.state.imageUrl);
+    fetch("https://cryptic-anchorage-82359.herokuapp.com/imageurl", {
+      method: "post",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        input: this.state.input,
+      }),
+    })
+      .then((res) => res.json())
+      .then((res) => {
+        if (res) {
+          fetch("https://cryptic-anchorage-82359.herokuapp.com/image", {
+            method: "put",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: this.state.user.id,
+            }),
+          })
+            .then((res) => res.json())
+            .then((count) => {
+              this.setState(Object.assign(this.state.user, { entries: count }));
+              // console.log(this.state.user.entries);
+            });
+        }
+        // const faceLocationArrays = res.outputs[0].data.regions.map((data, i) => {
+
+        // })
+        // this.displayFaceBox(this.calculateFaceLocation(res)).catch((err) =>
+        //   console.log(err)
+        // );
+        this.calculateFaceLocation(res);
+      });
   };
 
   onRouteChange = (route) => {
     if (route === "signout") {
-      this.setState({ isSignedIn: false });
+      this.setState(initialState);
     } else if (route === "home") {
       this.setState({ isSignedIn: true });
     }
@@ -122,10 +151,11 @@ class App extends Component {
             <Rank
               name={this.state.user.name}
               entries={this.state.user.entries}
+              box={this.state.box}
             />
             <ImageLinkForm
               onInputChange={this.onInputChange}
-              onButtonSubmit={this.onButtonSubmit}
+              onPictureSubmit={this.onPictureSubmit}
             />
             <FaceRecognition box={box} imageUrl={imageUrl} />{" "}
           </div>
